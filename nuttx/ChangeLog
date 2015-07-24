@@ -9514,3 +9514,129 @@
 	  on the Embest development board.  From Toby Duckworth.
 
 7.8 2015-xx-xx Gregory Nutt <gnutt@nuttx.org>
+
+	* include/nuttx/math.h and libc/math: Add support for inverse
+	  hyperbolic functions.  From Brennan Ashton (2015-01-26).
+	* include/nuttx/math.h: Add math library definition for isfinite().
+	  From Brennan Ashton (2015-01-26).
+	* include/nuttx/math.h and libc/math/lib_erf*.c: Add error function
+	  to math library.  From Brennan Ashton (2015-01-26).
+	* include/nuttx/math.h and libc/math: Add math library defines for
+	  nan(), copysign(), and trunc() functions.  From Brennan Ashton
+	  (2015-01-26).
+	* sched/wqueue/kwork_process and libc/wqueue/lib_usrthread.c:  Fix
+	  a backward calculation when determining the time to the next event.
+	  This is a bug in the back-up, "fail safe", work queue timing so it
+	  not as bad as it seems.  From Liio Chen via the PX4 repository
+	 (2015-01-27).
+	* arch/arm/src/stm32/stm32_exti_gpio.c:  Disabling any of EXTI 5-9
+	  interrupts was disabling interrupts for all EXTI 5-9. Same issue with
+	  EXTI 10-15.  From Jussi Kivilinna (2015-01-27).
+	* arch/arm/src/stm32/stm32_rtcc.c and Kconfig:  Recent changes to
+	  stm32_rtcc.c do not compile with STM32L15XX configurations.  From
+	  Jussi Kivilinna (2015-01-27).
+	* net/local:  Add initial support for local, Unix domain sockets.
+	  Initial support is limited to SOCK_STREAM and is untested on
+	  initial commit (2014-01-27).
+	* net/iob, net/tcp/tcp_callback.c, and include/nuttx/net/iob.h:  There
+	  were issues with the TCP write-ahead buffering if CONFIG_NET_NOINTS was
+	  enabled:  There is a possibility of deadlocks in certain timing conditions.
+	  I have not seen this with the Tiva driver that I have been users but
+	  other people claim to see the issue on other platforms.  Certainly it
+	  is a logic error:  The network should never wait for TCP read-ahead
+	  buffering space to be available.  It should drop the packets
+	  immediately. This was fixed by duplicating most of the IOB interfaces:
+	  The versions that waited are still present (like iob_alloc()), but now
+	  there are non-waiting versions of the same interfaces (like
+	  iob_tryalloc()).  The TCP read-ahead logic now uses only these non-
+	  waiting interfaces (2015-01-27).
+	* net/tcp/tcp_send_buffered.c and tcp_wrbuffer.c: Fix another deadlock
+	  condition.  tcp_write_buffer_alloc() calls sem_wait() with network
+	  locked.  That worked if CONFIG_NET_NOINTS was not defined because
+	  interrupts are automatically restored when the wait happens.  But
+	  with CONFIG_NET_NOINTS=y, the wait blocks with the network locked --
+	  bad style and also can lead to a deadlock condition (2015-01-28).
+	* arch/arm/src/armv7-a/arm_memcpy.S and arch/arm/src/armv7-m/up_memcpy.S:
+	  ARM assembly language memcpy.S's were not returning a value in R0 they
+	  are required to do.  From David Sidrane (2015-01-29).
+	* net/local:  Extend Unix domain socket support to include support
+	  for datagram Unix domain sockets (2015-01-29).
+	* net/socket/accept.c:  Fix a major TCP bug introduced with commit
+	  e71c09ce9777ff732cb60bd07fb43d85522f79d6.  Some connection logic was
+	  reordered; setting the socket as 'connected' got moved to BEFORE the point
+	  where the check was made if the socket was already connected.  The
+	  resulting behavior was odd:  Telnet would connect, but then when you
+	  exit and reconnect, it would fail to connect.  But then if try again, it
+	  would connect okay. So the symptom was connect-fail-connect-fail-...
+	  (2015-01-29).
+	* net/socket/net_poll.c, recvfrom.c, and udp/udp_callback.c: Add UDP
+	  read-ahead support.  This enables support for for poll/select on UDP
+	  sockets and also non-blocking UDP sockets.  From Macs N (2015-01-30).
+	* net/local/local_netpoll.c, socket/net_poll.c, and udp/udp_netpoll.c:
+	  Separate out UDP poll logic from net_poll.c into a new udp_netpoll.c;
+	  Create a skeleton local_netpoll (2015-01-30).
+	* net/socket/net_poll.c and tcp/tcp_netpoll.c: Separate TCP poll logic
+	  out of net_poll.c and move it into the new tcp_netpoll.c (2015-01-30).
+	* arch/arm/src/efm32/efm32_clockconfig.c: Logic to unconditionally enable
+	  LE clocking. Even you don't use core clock LE as source for LFA or LFB,
+	  to read are write any register not clocked by HFPERCLK or HFCORECLK,
+	  HFCORECLKLE should be enabled.  From Pierre-noel Bouteville (2015-01-30).
+	* drivers/net/slip.c: SLIP interface improvements.  From Macs N
+	  (2015-01-30).
+	* clock_systimespec():  Fixes for compilation errors in certain
+	  configurations.  From Macs N.
+	* drivers/pipes/fifo.c, include/nuttx/fs/ioctl.h, and net/local/local_fifo.c:
+	  Fix a race condition between FIFO buffer operations and the opening and
+	  closing of FIFOs which necessary when the FIFOs are used to support
+	  Unix domain, datagram sockets.  The default policy is the deallocate
+	  FIFO buffering when the last client closes the pipe.  When when used
+	  for datagram communications, packets left in the FIFO will be lost.
+	  Some like UDP read-ahead is needed:  The buffered data in the FIFO
+	  needs to be retained until the reader gets a chance to re-open the
+	  FIFO.  Added an ioctl (PIPEIOC_POLICY) to control the buffer policy.
+	  Default (0) is the legacy behavior; Unix domain datagram logic sets
+	  the alternative policy so that the packet data persists after the FIFO
+	  is closed (2015-01-30).
+	* net/local:  Add configuration options so that Unix domain stream and
+	  datagram support can be separately enabled (2015-01-31).
+	* fs/vfs/fs_unlink.c and include/nuttx/fs/fs.h: Add an unlink method to
+	  both the character and block driver interface.  This is important
+	  because if the driver inode is unlinked and there are no open references
+	  to the driver, then the driver resources will be stranded.  On the unlink
+	  call, the driver has the opportunity (1) check if there an any open
+	  references, and if not, (2) free the driver resources (2015-01-31).
+	* drivers/pipes:  Implement the unlink method.  If the pipe/FIFO is
+	  unlinked, it will marked the pipe/FIFO as unlinked.  If/when all open
+	  references to the driver are closed, all of the driver resources will
+	  be freed (2015-01-31).
+	* arch/avr: Added architecture support for the Atmel AVR ATMega1284P
+	  MCU.  From Jedi Tek'Unum (2015-01-31).
+	* configs/moteino-mega: Added support for the LowPowerLab MoteinoMEGA
+	  that is based on the Atmel AVR ATMega1284P MCU.  From Jedi Tek'Unum
+	  (2015-01-31).
+	* EFM32 RTC:  RTC driver using BURTC. From Pierre-Noel Bouteville
+	  (2015-02-01).
+	* drivers/ramdisk.c, include/nuttx/fs/ramdisk.h, and other files:  Add
+	  logic to dispose of the drvier and RAM buffer when the RAM disk has
+	  been unlinked and all open references to the RAM disk have been
+	  closed.  Add new parameters to romdisk() to specify what should be
+	  done with the RAM/ROM buffer -- Should it be freed or not?  Changed
+	  all calls to ramdisk() to use these new parameters (2015-02-01).
+	* net/icmpv6/icmpv6_neighbor.c, icmpv6_notify.c (and other files): Adds
+	  basic logic to support verification that we have the IPv6 address in
+	  the Neighbor Table.  This feature is important because otherwise the
+	  first packet sent to a remote peer will fail (it will be replaced
+	  with a Neighbor Solicitation) (2015-01-02).
+	* net/arp/arp.h, arp_notify.c, and arp_send.c: Fixes another
+	  CONFIG_NET_NOINTS issues.  When called sem_timedwait() with the
+	  network locked, the network stays logcked while we wait which is not
+	  what we want (without CONFIG_NET_NOINTS, interrupts are re-enabled
+	  while we wait and all is well) (2015-02-02).
+	* net/icmpv6/icmpv6.h, icmpv6_neighbor.c, icmpv6_notify.c: Apply the
+	  same fix as for ARP to the Neighbor Solicitation logic (2015-02-02).
+	* sched/sched/sched_timerexpiration.c, Kconfig, and include/nuttx/arch.h:
+	  On my platform I have just 16-bit timer clocked at 32kHz. As result
+	  oneshot timer max delay is 2s. The patch adds limit of maximum ticks
+	  in sched_timer_start(). From Macs N (2015-02-03).
+	* arch/arm/src/sam34:  Add support for Tickless mode of operation for
+	  the SAM4CM platfrom.  From Macs N (2015-02-03).

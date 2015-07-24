@@ -64,6 +64,9 @@ ifeq ($(CONFIG_SPI),y)
 ifeq ($(CONFIG_ADXL345_SPI),y)
   CSRCS += adxl345_spi.c
 endif
+ifeq ($(CONFIG_MPL115A),y)
+  CSRCS += mpl115a.c
+endif
 endif # CONFIG_SPI
 
 # Quadrature encoder upper half

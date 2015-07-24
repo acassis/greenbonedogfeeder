@@ -105,6 +105,12 @@ void weak_function stm32_spiinitialize(void)
 
   (void)stm32_configgpio(GPIO_LCDTP_CS);
 #endif
+
+#if defined(CONFIG_STM32_SPI3) && defined(CONFIG_MPL115A)
+  /* Configure the MPL115A SPI3 CS pin as an output */
+
+  (void)stm32_configgpio(GPIO_MPL115A_CS);
+#endif
 }
 
 /****************************************************************************
@@ -168,6 +174,14 @@ uint8_t stm32_spi2status(FAR struct spi_dev_s *dev, enum spi_dev_e devid)
 #ifdef CONFIG_STM32_SPI3
 void stm32_spi3select(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool selected)
 {
+#ifdef CONFIG_MPL115A
+  /* Select/de-select the barometer */
+
+  if (devid == SPIDEV_PRESSURE)
+    {
+      stm32_gpiowrite(GPIO_MPL115A_CS, !selected);
+    }
+#endif
   spidbg("devid: %d CS: %s\n", (int)devid, selected ? "assert" : "de-assert");
 }
 

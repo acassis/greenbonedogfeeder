@@ -68,6 +68,7 @@
 #include "tcp/tcp.h"
 #include "udp/udp.h"
 #include "pkt/pkt.h"
+#include "local/local.h"
 #include "socket/socket.h"
 
 /****************************************************************************
@@ -99,6 +100,7 @@ struct recvfrom_s
   size_t                   rf_buflen;    /* Length of receive buffer */
   uint8_t                 *rf_buffer;    /* Pointer to receive buffer */
   FAR struct sockaddr     *rf_from;      /* Address of sender */
+  FAR socklen_t           *rf_fromlen;   /* Number of bytes allocated for address of sender */
   size_t                   rf_recvlen;   /* The received length */
   int                      rf_result;    /* Success:OK, failure:negated errno */
 };
@@ -115,7 +117,7 @@ struct recvfrom_s
  *   Copy the read data from the packet
  *
  * Parameters:
- *   dev      The sructure of the network driver that caused the interrupt
+ *   dev      The structure of the network driver that caused the interrupt
  *   pstate   recvfrom state structure
  *
  * Returned Value:
@@ -309,7 +311,7 @@ static inline void recvfrom_newudpdata(FAR struct net_driver_s *dev,
 #endif /* CONFIG_NET_TCP */
 
 /****************************************************************************
- * Function: recvfrom_readahead
+ * Function: recvfrom_tcpreadahead
  *
  * Description:
  *   Copy the read data from the packet
@@ -327,7 +329,7 @@ static inline void recvfrom_newudpdata(FAR struct net_driver_s *dev,
  ****************************************************************************/
 
 #if defined(CONFIG_NET_TCP) && defined(CONFIG_NET_TCP_READAHEAD)
-static inline void recvfrom_readahead(struct recvfrom_s *pstate)
+static inline void recvfrom_tcpreadahead(struct recvfrom_s *pstate)
 {
   FAR struct tcp_conn_s *conn = (FAR struct tcp_conn_s *)pstate->rf_sock->s_conn;
   FAR struct iob_s *iob;
@@ -389,6 +391,86 @@ static inline void recvfrom_readahead(struct recvfrom_s *pstate)
     }
 }
 #endif /* CONFIG_NET_UDP || CONFIG_NET_TCP */
+
+#if defined(CONFIG_NET_UDP) && defined(CONFIG_NET_UDP_READAHEAD)
+
+static inline void recvfrom_udpreadahead(struct recvfrom_s *pstate)
+{
+  FAR struct udp_conn_s *conn = (FAR struct udp_conn_s *)pstate->rf_sock->s_conn;
+  FAR struct iob_s *iob;
+  int recvlen;
+
+  /* Check there is any UDP datagram already buffered in a read-ahead
+   * buffer.
+   */
+
+  if ((iob = iob_peek_queue(&conn->readahead)) != NULL &&
+          pstate->rf_buflen > 0)
+    {
+      FAR struct iob_s *tmp;
+      uint8_t src_addr_size;
+
+      DEBUGASSERT(iob->io_pktlen > 0);
+
+      /* Transfer that buffered data from the I/O buffer chain into
+       * the user buffer.
+       */
+
+      recvlen = iob_copyout(&src_addr_size, iob, sizeof(uint8_t), 0);
+      if (recvlen != sizeof(uint8_t))
+        {
+          goto out;
+        }
+
+      if ( 0
+#ifdef CONFIG_NET_IPv6
+           || src_addr_size == sizeof(struct sockaddr_in6)
+#endif
+#ifdef CONFIG_NET_IPv4
+           || src_addr_size == sizeof(struct sockaddr_in)
+#endif
+        )
+        {
+          if (pstate->rf_from)
+            {
+              socklen_t len = *pstate->rf_fromlen;
+              len = (socklen_t)src_addr_size > len ? len : (socklen_t)src_addr_size;
+
+              recvlen = iob_copyout((FAR uint8_t *)pstate->rf_from, iob,
+                                    len, sizeof(uint8_t));
+              if (recvlen != len)
+                {
+                  goto out;
+                }
+            }
+        }
+
+      recvlen = iob_copyout(pstate->rf_buffer, iob, pstate->rf_buflen,
+                            src_addr_size + sizeof(uint8_t));
+
+      nllvdbg("Received %d bytes (of %d)\n", recvlen, iob->io_pktlen);
+
+      /* Update the accumulated size of the data read */
+
+      pstate->rf_recvlen += recvlen;
+      pstate->rf_buffer  += recvlen;
+      pstate->rf_buflen  -= recvlen;
+
+out:
+      /* Remove the I/O buffer chain from the head of the read-ahead
+       * buffer queue.
+       */
+
+      tmp = iob_remove_queue(&conn->readahead);
+      DEBUGASSERT(tmp == iob);
+      UNUSED(tmp);
+
+      /* And free the I/O buffer chain */
+
+      (void)iob_free_chain(iob);
+    }
+}
+#endif
 
 /****************************************************************************
  * Function: recvfrom_timeout
@@ -678,11 +760,11 @@ static uint16_t recvfrom_tcpinterrupt(FAR struct net_driver_s *dev,
            * 1) If CONFIG_NET_TCP_RECVDELAY == 0 then we will consider the
            *    TCP/IP transfer complete as soon as any data has been received.
            *    This is safe because if any additional data is received, it
-           *    will be retained inthe TCP/IP read-ahead buffer until the
+           *    will be retained in the TCP/IP read-ahead buffer until the
            *    next receive is performed.
            * 2) CONFIG_NET_TCP_RECVDELAY > 0 may be set to wait a little
            *    bit to determine if more data will be received.  You might
-           *    do this if read-ahead buffereing is disabled and we want to
+           *    do this if read-ahead buffering is disabled and we want to
            *    minimize the loss of back-to-back packets.  In this case,
            *    the transfer is complete when either a) the entire user buffer
            *    is full or 2) when the receive timeout occurs (below).
@@ -1014,6 +1096,7 @@ static uint16_t recvfrom_udpinterrupt(struct net_driver_s *dev, void *pvconn,
 #if defined(CONFIG_NET_UDP) || defined(CONFIG_NET_TCP)
 static void recvfrom_init(FAR struct socket *psock, FAR void *buf,
                           size_t len, FAR struct sockaddr *infrom,
+                          FAR socklen_t *fromlen,
                           FAR struct recvfrom_s *pstate)
 {
   /* Initialize the state structure. */
@@ -1023,6 +1106,7 @@ static void recvfrom_init(FAR struct socket *psock, FAR void *buf,
   pstate->rf_buflen    = len;
   pstate->rf_buffer    = buf;
   pstate->rf_from      = infrom;
+  pstate->rf_fromlen   = fromlen;
 
   /* Set up the start time for the timeout */
 
@@ -1032,7 +1116,7 @@ static void recvfrom_init(FAR struct socket *psock, FAR void *buf,
 #endif
 }
 
-/* The only uninitialization that has to be performed is destroying the
+/* The only un-initialization that has to be performed is destroying the
  * semaphore.
  */
 
@@ -1183,7 +1267,7 @@ static inline void recvfrom_udp_rxnotify(FAR struct socket *psock,
 
 #ifdef CONFIG_NET_PKT
 static ssize_t pkt_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
-                            FAR struct sockaddr *from)
+                            FAR struct sockaddr *from, FAR socklen_t *fromlen)
 {
   FAR struct pkt_conn_s *conn = (FAR struct pkt_conn_s *)psock->s_conn;
   struct recvfrom_s state;
@@ -1198,7 +1282,7 @@ static ssize_t pkt_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
    */
 
   save = net_lock();
-  recvfrom_init(psock, buf, len, from, &state);
+  recvfrom_init(psock, buf, len, from, fromlen, &state);
 
   /* TODO recvfrom_init() expects from to be of type sockaddr_in, but
    * in our case is sockaddr_ll
@@ -1267,7 +1351,7 @@ errout_with_state:
  *   from   INET address of source (may be NULL)
  *
  * Returned Value:
- *   On success, returns the number of characters sent.  On  error,
+ *   On success, returns the number of characters received.  On  error,
  *   -errno is returned (see recvfrom for list of errnos).
  *
  * Assumptions:
@@ -1276,7 +1360,7 @@ errout_with_state:
 
 #ifdef CONFIG_NET_UDP
 static ssize_t udp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
-                            FAR struct sockaddr *from)
+                            FAR struct sockaddr *from, FAR socklen_t *fromlen)
 {
   FAR struct udp_conn_s *conn = (FAR struct udp_conn_s *)psock->s_conn;
   struct recvfrom_s state;
@@ -1291,7 +1375,7 @@ static ssize_t udp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
    */
 
   save = net_lock();
-  recvfrom_init(psock, buf, len, from, &state);
+  recvfrom_init(psock, buf, len, from, fromlen, &state);
 
   /* Setup the UDP remote connection */
 
@@ -1301,6 +1385,48 @@ static ssize_t udp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
       goto errout_with_state;
     }
 
+#ifdef CONFIG_NET_UDP_READAHEAD
+  recvfrom_udpreadahead(&state);
+
+  /* The default return value is the number of bytes that we just copied
+   * into the user buffer.  We will return this if the socket has become
+   * disconnected or if the user request was completely satisfied with
+   * data from the readahead buffers.
+   */
+
+  ret = state.rf_recvlen;
+
+#else
+  /* Otherwise, the default return value of zero is used (only for the case
+   * where len == state.rf_buflen is zero).
+   */
+
+  ret = 0;
+#endif
+
+#ifdef CONFIG_NET_UDP_READAHEAD
+  if (_SS_ISNONBLOCK(psock->s_flags))
+    {
+      /* Return the number of bytes read from the read-ahead buffer if
+       * something was received (already in 'ret'); EAGAIN if not.
+       */
+
+      if (ret <= 0)
+        {
+          /* Nothing was received */
+
+          ret = -EAGAIN;
+        }
+    }
+
+  /* It is okay to block if we need to.  If there is space to receive anything
+   * more, then we will wait to receive the data.  Otherwise return the number
+   * of bytes read from the read-ahead buffer (already in 'ret').
+   */
+
+  else if (state.rf_recvlen == 0)
+#endif
+  {
   /* Set up the callback in the connection */
 
   state.rf_cb = udp_callback_alloc(conn);
@@ -1333,6 +1459,7 @@ static ssize_t udp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
     {
       ret = -EBUSY;
     }
+  }
 
 errout_with_state:
   net_unlock(save);
@@ -1354,7 +1481,7 @@ errout_with_state:
  *   from   INET address of source (may be NULL)
  *
  * Returned Value:
- *   On success, returns the number of characters sent.  On  error,
+ *   On success, returns the number of characters received.  On  error,
  *   -errno is returned (see recvfrom for list of errnos).
  *
  * Assumptions:
@@ -1363,7 +1490,7 @@ errout_with_state:
 
 #ifdef CONFIG_NET_TCP
 static ssize_t tcp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
-                            FAR struct sockaddr *from)
+                            FAR struct sockaddr *from, FAR socklen_t *fromlen)
 {
   struct recvfrom_s       state;
   net_lock_t              save;
@@ -1375,7 +1502,7 @@ static ssize_t tcp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
    */
 
   save = net_lock();
-  recvfrom_init(psock, buf, len, from, &state);
+  recvfrom_init(psock, buf, len, from, fromlen, &state);
 
   /* Handle any any TCP data already buffered in a read-ahead buffer.  NOTE
    * that there may be read-ahead data to be retrieved even after the
@@ -1383,7 +1510,7 @@ static ssize_t tcp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
    */
 
 #ifdef CONFIG_NET_TCP_READAHEAD
-  recvfrom_readahead(&state);
+  recvfrom_tcpreadahead(&state);
 
   /* The default return value is the number of bytes that we just copied
    * into the user buffer.  We will return this if the socket has become
@@ -1546,7 +1673,7 @@ static ssize_t tcp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
  *   fromlen  The length of the address structure
  *
  * Returned Value:
- *   On success, returns the number of characters sent.  If no data is
+ *   On success, returns the number of characters received.  If no data is
  *   available to be received and the peer has performed an orderly shutdown,
  *   recv() will return 0.  Otherwise, on errors, -1 is returned, and errno
  *   is set appropriately:
@@ -1580,7 +1707,7 @@ static ssize_t tcp_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
  ****************************************************************************/
 
 ssize_t psock_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
-                       int flags,FAR struct sockaddr *from,
+                       int flags, FAR struct sockaddr *from,
                        FAR socklen_t *fromlen)
 {
   ssize_t ret;
@@ -1595,6 +1722,12 @@ ssize_t psock_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
       goto errout;
     }
 #endif
+
+  if (from && !fromlen)
+    {
+      err = EINVAL;
+      goto errout;
+    }
 
   /* Verify that the sockfd corresponds to valid, allocated socket */
 
@@ -1614,22 +1747,37 @@ ssize_t psock_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
 
       /* Get the minimum socket length */
 
-#ifdef CONFIG_NET_IPv4
-#ifdef CONFIG_NET_IPv6
-      if (psock->s_domain == PF_INET)
-#endif
+      switch (psock->s_domain)
         {
-          minlen = sizeof(struct sockaddr_in);
-        }
-#endif /*CONFIG_NET_IPv4 */
+#ifdef CONFIG_NET_IPv4
+        case PF_INET:
+          {
+            minlen = sizeof(struct sockaddr_in);
+          }
+          break;
+#endif
 
 #ifdef CONFIG_NET_IPv6
-#ifdef CONFIG_NET_IPv4
+        case PF_INET6:
+          {
+            minlen = sizeof(struct sockaddr_in6);
+          }
+          break;
 #endif
-        {
-          minlen = sizeof(struct sockaddr_in6);
+
+#ifdef CONFIG_NET_LOCAL
+        case PF_LOCAL:
+          {
+            minlen = sizeof(sa_family_t);
+          }
+          break;
+#endif
+
+        default:
+          DEBUGPANIC();
+          err = EINVAL;
+          goto errout;
         }
-#endif /*CONFIG_NET_IPv6 */
 
       if (*fromlen < minlen)
         {
@@ -1645,30 +1793,72 @@ ssize_t psock_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
   /* Read from the network interface driver buffer */
   /* Or perform the TCP/IP or UDP recv() operation */
 
-#if defined(CONFIG_NET_PKT)
-  if (psock->s_type == SOCK_RAW)
+  switch (psock->s_type)
     {
-      ret = pkt_recvfrom(psock, buf, len, from);
-    }
-  else
+#ifdef CONFIG_NET_PKT
+    case SOCK_RAW:
+      {
+        ret = pkt_recvfrom(psock, buf, len, from, fromlen);
+      }
+      break;
+#endif /* CONFIG_NET_PKT */
+
+#if defined(CONFIG_NET_TCP) || defined(CONFIG_NET_LOCAL_STREAM)
+    case SOCK_STREAM:
+      {
+#ifdef CONFIG_NET_LOCAL_STREAM
+#ifdef CONFIG_NET_TCP
+        if (psock->s_domain == PF_LOCAL)
 #endif
-#if defined(CONFIG_NET_TCP)
-  if (psock->s_type == SOCK_STREAM)
-    {
-      ret = tcp_recvfrom(psock, buf, len, from);
-    }
-  else
+          {
+            ret = psock_local_recvfrom(psock, buf, len, flags,
+                                       from, fromlen);
+          }
+#endif /* CONFIG_NET_LOCAL_STREAM */
+
+#ifdef CONFIG_NET_TCP
+#ifdef CONFIG_NET_LOCAL_STREAM
+        else
 #endif
-#if defined(CONFIG_NET_UDP)
-  if (psock->s_type == SOCK_DGRAM)
-    {
-      ret = udp_recvfrom(psock, buf, len, from);
-    }
-  else
+          {
+            ret = tcp_recvfrom(psock, buf, len, from, fromlen);
+          }
+#endif /* CONFIG_NET_TCP */
+      }
+      break;
+#endif /* CONFIG_NET_TCP || CONFIG_NET_LOCAL_STREAM */
+
+#if defined(CONFIG_NET_UDP) || defined(CONFIG_NET_LOCAL_DGRAM)
+    case SOCK_DGRAM:
+      {
+#ifdef CONFIG_NET_LOCAL_DGRAM
+#ifdef CONFIG_NET_UDP
+        if (psock->s_domain == PF_LOCAL)
 #endif
-    {
-      ndbg("ERROR: Unsupported socket type: %d\n", psock->s_type);
-      ret = -ENOSYS;
+          {
+            ret = psock_local_recvfrom(psock, buf, len, flags,
+                                       from, fromlen);
+          }
+#endif /* CONFIG_NET_LOCAL_DGRAM */
+
+#ifdef CONFIG_NET_UDP
+#ifdef CONFIG_NET_LOCAL_DGRAM
+        else
+#endif
+          {
+            ret = udp_recvfrom(psock, buf, len, from, fromlen);
+          }
+#endif /* CONFIG_NET_UDP */
+      }
+      break;
+#endif /* CONFIG_NET_UDP || CONFIG_NET_LOCAL_DGRAM */
+
+    default:
+      {
+        ndbg("ERROR: Unsupported socket type: %d\n", psock->s_type);
+        ret = -ENOSYS;
+      }
+      break;
     }
 
   /* Set the socket state to idle */
@@ -1688,7 +1878,7 @@ ssize_t psock_recvfrom(FAR struct socket *psock, FAR void *buf, size_t len,
   return ret;
 
 errout:
-  errno = err;
+  set_errno(err);
   return ERROR;
 }
 
@@ -1713,7 +1903,7 @@ errout:
  *   fromlen  The length of the address structure
  *
  * Returned Value:
- *   On success, returns the number of characters sent.  On  error,
+ *   On success, returns the number of characters received.  On  error,
  *   -1 is returned, and errno is set appropriately:
  *
  *   EAGAIN

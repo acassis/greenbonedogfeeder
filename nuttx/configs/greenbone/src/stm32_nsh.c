@@ -43,6 +43,7 @@
 #include <syslog.h>
 
 #include "greenbone.h"
+#include <arch/board/board.h>
 
 /****************************************************************************
  * Pre-Processor Definitions
@@ -82,6 +83,11 @@ int nsh_archinitialize(void)
   up_display();
   up_button();
   up_valve();
+  up_motor();
+
+#ifdef CONFIG_MPL115A
+  stm32_mpl115ainitialize("/dev/press");
+#endif
 
 #ifdef HAVE_MMCSD
   return stm32_sdinitialize(CONFIG_NSH_MMCSDSLOTNO);

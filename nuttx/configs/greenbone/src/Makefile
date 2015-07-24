@@ -40,7 +40,7 @@ CFLAGS += -I$(TOPDIR)/sched
 ASRCS =
 AOBJS = $(ASRCS:.S=$(OBJEXT))
 
-CSRCS = stm32_boot.c stm32_button.c stm32_leds.c stm32_led.c stm32_valve.c stm32_spi.c stm32_display.c stm32_valve.c
+CSRCS = stm32_boot.c stm32_button.c stm32_leds.c stm32_led.c stm32_spi.c stm32_display.c stm32_valve.c stm32_motor.c
 
 ifeq ($(CONFIG_HAVE_CXX),y)
 CSRCS += stm32_cxxinitialize.c
@@ -52,6 +52,10 @@ endif
 
 ifeq ($(CONFIG_MMCSD),y)
 CSRCS += stm32_mmcsd.c
+endif
+
+ifeq ($(CONFIG_MPL115A),y)
+CSRCS += stm32_mpl115a.c
 endif
 
 ifeq ($(CONFIG_STM32_OTGFS),y) # F107

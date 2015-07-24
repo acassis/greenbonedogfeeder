@@ -276,6 +276,11 @@
 #define GPIO_LCDTP_CS     (GPIO_OUTPUT | GPIO_CNF_OUTPP | GPIO_MODE_50MHz | \
                            GPIO_OUTPUT_SET | GPIO_PORTC | GPIO_PIN4)
 
+/* MPL115A Barometer */
+
+#define GPIO_MPL115A_CS    (GPIO_OUTPUT | GPIO_CNF_OUTPP | GPIO_MODE_50MHz | \
+                           GPIO_OUTPUT_SET | GPIO_PORTB | GPIO_PIN6)
+
 /************************************************************************************
  * Public Functions
  ************************************************************************************/

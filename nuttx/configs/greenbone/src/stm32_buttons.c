@@ -44,7 +44,7 @@
 #include <nuttx/arch.h>
 #include <arch/board/board.h>
 
-#include "greenbone_stm32f107.h"
+#include "greenbone"
 
 #ifdef CONFIG_ARCH_BUTTONS
 

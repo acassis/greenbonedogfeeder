@@ -46,7 +46,7 @@ STACKSIZE	= 1024
 # Hello, World! Example
 
 ASRCS		=
-CSRCS		= dogfeed.c
+CSRCS		= dogfeed.c server.c
 
 AOBJS		= $(ASRCS:.S=$(OBJEXT))
 COBJS		= $(CSRCS:.c=$(OBJEXT))

@@ -1976,6 +1976,34 @@ examples/usbterm
   Prolifics emulation (not defined) and the CDC serial implementation
   (when defined). CONFIG_USBDEV_TRACE_INITIALIDSET.
 
+examples/ustream
+^^^^^^^^^^^^^^^^
+
+  This is the same test as examples/udp and similar to examples/ustream,
+  but using Unix domain datagram sockets.
+
+  Dependencies:
+    CONFIG_NET_LOCAL - Depends on support for Unix domain sockets
+
+  Configuration:
+    CONFIG_EXAMPLES_UDGRAM - Enables the Unix domain socket example.
+    CONFIG_EXAMPLES_UDGRAM_ADDR - Specifics the Unix domain address.
+      Default "/dev/fifo".
+
+examples/ustream
+^^^^^^^^^^^^^^^^
+
+  This is the same test as examples/udp and similar to examples/udgram,
+  but using Unix domain stream sockets.
+
+  Dependencies:
+    CONFIG_NET_LOCAL - Depends on support for Unix domain sockets
+
+  Configuration:
+    CONFIG_EXAMPLES_USTREAM - Enables the Unix domain socket example.
+    CONFIG_EXAMPLES_USTREAM_ADDR - Specifics the Unix domain address.
+      Default "/dev/fifo".
+
 examples/watchdog
 ^^^^^^^^^^^^^^^^^
 

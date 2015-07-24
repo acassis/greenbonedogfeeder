@@ -1196,3 +1196,11 @@
 	* apps/nsh: Clean up network status presentation for IPv6 (2015-01-24).
 
 7.8 2015-xx-xx Gregory Nutt <gnutt@nuttx.org>
+
+	* apps/interpreters/micropython: Add math library defines for nan(),
+	  copysign(), and trunc() functions.  From Brennan Ashton (2015-01-26).
+	* apps/examples/ustreadm:  Add a simple test of Unix domain sockets
+	  (2015-01-27).
+	* apps/examples/udgram:  Add a simple test of Unix domain datagram
+	  sockets (2015-01-28)
+

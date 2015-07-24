@@ -43,12 +43,25 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <queue.h>
+
+#include <nuttx/net/ip.h>
+
+#ifdef CONFIG_NET_UDP_READAHEAD
+#  include <nuttx/net/iob.h>
+#endif
 
 #ifdef CONFIG_NET_UDP
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+/* Conditions for support UDP poll/select operations */
+
+#if !defined(CONFIG_DISABLE_POLL) && CONFIG_NSOCKET_DESCRIPTORS > 0 && \
+    defined(CONFIG_NET_UDP_READAHEAD)
+#  define HAVE_UDP_POLL
+#endif
 
 /* Allocate a new UDP data callback */
 
@@ -74,6 +87,16 @@ struct udp_conn_s
   uint8_t  ttl;           /* Default time-to-live */
   uint8_t  crefs;         /* Reference counts on this instance */
 
+#ifdef CONFIG_NET_UDP_READAHEAD
+  /* Read-ahead buffering.
+   *
+   *   readahead - A singly linked list of type struct iob_qentry_s
+   *               where the UDP/IP read-ahead data is retained.
+   */
+
+  struct iob_queue_s readahead;   /* Read-ahead buffering */
+#endif
+
   /* Defines the list of UDP callbacks */
 
   FAR struct devif_callback_s *list;
@@ -95,9 +118,11 @@ extern "C"
  * Public Function Prototypes
  ****************************************************************************/
 
+struct sockaddr;      /* Forward reference */
+struct socket;        /* Forward reference */
 struct net_driver_s;  /* Forward reference */
+struct pollfd;        /* Forward reference */
 
-/* Defined in udp_conn.c ****************************************************/
 /****************************************************************************
  * Name: udp_initialize
  *
@@ -197,7 +222,6 @@ int udp_bind(FAR struct udp_conn_s *conn, FAR const struct sockaddr *addr);
 
 int udp_connect(FAR struct udp_conn_s *conn, FAR const struct sockaddr *addr);
 
-/* Defined in udp_ipselect.c ************************************************/
 /****************************************************************************
  * Function: udp_ipv4_select
  *
@@ -222,7 +246,6 @@ void udp_ipv4_select(FAR struct net_driver_s *dev);
 void udp_ipv6_select(FAR struct net_driver_s *dev);
 #endif
 
-/* Defined in udp_poll.c ****************************************************/
 /****************************************************************************
  * Name: udp_poll
  *
@@ -243,7 +266,6 @@ void udp_ipv6_select(FAR struct net_driver_s *dev);
 
 void udp_poll(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn);
 
-/* Defined in udp_send.c ****************************************************/
 /****************************************************************************
  * Name: udp_send
  *
@@ -264,7 +286,6 @@ void udp_poll(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn);
 
 void udp_send(FAR struct net_driver_s *dev, FAR struct udp_conn_s *conn);
 
-/* Defined in udp_input.c ***************************************************/
 /****************************************************************************
  * Name: udp_ipv4_input
  *
@@ -311,7 +332,6 @@ int udp_ipv4_input(FAR struct net_driver_s *dev);
 int udp_ipv6_input(FAR struct net_driver_s *dev);
 #endif
 
-/* Defined in udp_callback.c ************************************************/
 /****************************************************************************
  * Function: udp_callback
  *
@@ -328,6 +348,75 @@ int udp_ipv6_input(FAR struct net_driver_s *dev);
 
 uint16_t udp_callback(FAR struct net_driver_s *dev,
                       FAR struct udp_conn_s *conn, uint16_t flags);
+
+/****************************************************************************
+ * Function: psock_udp_sendto
+ *
+ * Description:
+ *   This function implements the UDP-specific logic of the standard
+ *   sendto() socket operation.
+ *
+ * Input Parameters:
+ *   psock    A pointer to a NuttX-specific, internal socket structure
+ *   buf      Data to send
+ *   len      Length of data to send
+ *   flags    Send flags
+ *   to       Address of recipient
+ *   tolen    The length of the address structure
+ *
+ *   NOTE: All input parameters were verified by sendto() before this
+ *   function was called.
+ *
+ * Returned Value:
+ *   On success, returns the number of characters sent.  On  error,
+ *   a negated errno value is returned.  See the description in
+ *   net/socket/sendto.c for the list of appropriate return value.
+ *
+ ****************************************************************************/
+
+ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
+                         size_t len, int flags, FAR const struct sockaddr *to,
+                         socklen_t tolen);
+
+/****************************************************************************
+ * Function: udp_pollsetup
+ *
+ * Description:
+ *   Setup to monitor events on one UDP/IP socket
+ *
+ * Input Parameters:
+ *   psock - The UDP/IP socket of interest
+ *   fds   - The structure describing the events to be monitored, OR NULL if
+ *           this is a request to stop monitoring events.
+ *
+ * Returned Value:
+ *  0: Success; Negated errno on failure
+ *
+ ****************************************************************************/
+
+#ifdef HAVE_UDP_POLL
+int udp_pollsetup(FAR struct socket *psock, FAR struct pollfd *fds);
+#endif
+
+/****************************************************************************
+ * Function: udp_pollteardown
+ *
+ * Description:
+ *   Teardown monitoring of events on an UDP/IP socket
+ *
+ * Input Parameters:
+ *   psock - The TCP/IP socket of interest
+ *   fds   - The structure describing the events to be monitored, OR NULL if
+ *           this is a request to stop monitoring events.
+ *
+ * Returned Value:
+ *  0: Success; Negated errno on failure
+ *
+ ****************************************************************************/
+
+#ifdef HAVE_UDP_POLL
+int udp_pollteardown(FAR struct socket *psock, FAR struct pollfd *fds);
+#endif
 
 #undef EXTERN
 #ifdef __cplusplus

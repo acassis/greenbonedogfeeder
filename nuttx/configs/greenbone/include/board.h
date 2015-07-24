@@ -174,6 +174,25 @@ void up_setled(int led, bool ledon);
 void up_setleds(uint8_t ledset);
 #endif
 
+/************************************************************************************
+ * Name: stm32_mpl115ainitialize
+ *
+ * Description:
+ *   Initialize and register the MPL115A Pressure Sensor driver.
+ *
+ * Input parameters:
+ *   devpath - The full path to the driver to register. E.g., "/dev/press0"
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ************************************************************************************/
+
+#if defined(CONFIG_SPI) && defined(CONFIG_MPL115A) && defined(CONFIG_STM32_SPI3)
+int stm32_mpl115ainitialize(FAR const char *devpath);
+#endif
+
+
 #undef EXTERN
 #if defined(__cplusplus)
 }
