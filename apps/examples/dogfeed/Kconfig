@@ -1,0 +1,13 @@
+#
+# For a description of the syntax of this configuration file,
+# see misc/tools/kconfig-language.txt.
+#
+
+config EXAMPLES_DOGFEED
+	bool "Dog Feeder Application"
+	default n
+	---help---
+		Enable the \"DogFeed\" example
+
+if EXAMPLES_DOGFEED
+endif
